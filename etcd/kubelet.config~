@@ -1,0 +1,8 @@
+{ip_addr,"glurk"}.
+{port,glurk}.
+{service_id,"kubelete"}.
+{vsn,"1.0.0"}.
+{zone,"glurk"}.
+{capabilities,[glurk]}.
+{max_workers,glurk}.
+{max_pre_load_apps,[glurk]}.
