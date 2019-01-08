@@ -1,3 +1,3 @@
 ## set the paths for a default setup
 all:
-	erl -pa kubelet_ebin -pa service_ebin -s kubelet start_kubelet -sname etcd_node -setcookie glurk
+	erl -pa lib_ebin -pa kubelet_ebin -pa service_ebin -s kubelet start_kubelet -sname etcd_node -setcookie glurk
