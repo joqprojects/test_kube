@@ -82,7 +82,8 @@ init([]) ->
 %--- just for test'    
     init_glurk([{"adder","../../ebin/adder_100/ebin"},
 	        {"lib","../../ebin/lib/ebin"},
-		{"dns","../../ebin/dns/ebin"}
+		{"dns","../../ebin/dns/ebin"},
+		{"controller","../../ebin/controller/ebin"}		
 	       ]),
 %----
     {ok,MyIp}=application:get_env(ip_addr),
@@ -182,8 +183,9 @@ code_change(_OldVsn, State, _Extra) ->
 %% --------------------------------------------------------------------
 local_heart_beat(Interval)->
 %    io:format(" ~p~n",[{?MODULE,?LINE}]),
-    timer:sleep(Interval),
+    timer:sleep(10),
     ?MODULE:heart_beat(),
+    timer:sleep(Interval),
     spawn(fun()-> local_heart_beat(Interval) end).
 
 

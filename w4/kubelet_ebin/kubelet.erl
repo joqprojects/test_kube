@@ -119,7 +119,7 @@ init([]) ->
     Workers=init_workers(LSock,MaxWorkers,[]), % Glurk remove?
 
     %------ send info to controller
-    % if_dns:call("controller",controller,node_register,[KubeletInfo]),
+    if_dns:call("controller",controller,node_register,[KubeletInfo]),
     spawn(fun()-> local_heart_beat(?HEARTBEAT_INTERVAL) end), 
     io:format("Started Service  ~p~n",[{?MODULE}]),
     {ok, #state{kubelet_info=KubeletInfo,
@@ -169,25 +169,31 @@ handle_call({start_service,ServiceId,Vsn},_From, State) ->
 		       Err->
 			   {error,[?MODULE,?LINE,Err,ServiceId,Vsn]}
 		   end;
-	       AlreadyLoaded->
-		   {error,[?MODULE,?LINE,'already loaded and started',ServiceId,Vsn,AlreadyLoaded]}
+	       [DnsInfo]->
+		   {error,[?MODULE,?LINE,'already loaded and started',ServiceId,Vsn,DnsInfo]}
 	   end,
     
     {reply, Reply, State};
 
 handle_call({stop_service,ServiceId}, _From, State) ->
-    Reply=case lists:keymember(ServiceId,1,State#state.dns_list) of
-	      false->
-		  {error,[?MODULE,?LINE,'service nexists',ServiceId]};
-	      true->
-	    % de_register the service and remove it from service list
-	    % stop application call
-	    % read app file -> [modules]
-	    % delete[modules] + .app
-	    % reply
-		  glurk
-	  end,
-    {reply, Reply, State};
+    DnsList=State#state.dns_list,  
+    Reply= case [DnsInfo||DnsInfo<-DnsList,DnsInfo#dns_info.service_id =:=ServiceId] of
+	       []->
+		   NewState=State,
+		   {error,[?MODULE,?LINE,'eexists',ServiceId]};
+	       [DnsInfo]->   
+		   NewDnsList=lists:delete(DnsInfo,State#state.dns_list),
+		   NewState=State#state{dns_list=NewDnsList},
+		   case rpc:call(node(),kubelet_lib,stop_unload_app,[DnsInfo]) of
+		       ok->
+			   ok;
+		       Err->
+			   NewState=State,
+			   {error,[?MODULE,?LINE,Err,ServiceId]}
+		   end
+	   end,
+
+    {reply, Reply, NewState};
 
 
 handle_call({heart_beat}, _From, State) ->
@@ -195,6 +201,11 @@ handle_call({heart_beat}, _From, State) ->
     Now=erlang:now(),
     NewDnsList=[DnsInfo||DnsInfo<-DnsList,
 		      (timer:now_diff(Now,DnsInfo#dns_info.time_stamp)/1000)<?INACITIVITY_TIMEOUT],
+
+    % Send services registration to Controller
+    [if_dns:call("controller",controller,dns_register,[DnsInfo])||DnsInfo<-NewDnsList],
+    % Register node
+    if_dns:call("controller",controller,node_register,[State#state.kubelet_info]),
     NewState=State#state{dns_list=NewDnsList},
     Reply=ok,
    {reply, Reply, NewState};
@@ -258,12 +269,12 @@ handle_cast(Msg, State) ->
 handle_info({_Pid,active}, State) ->
     ActiveWorkers=State#state.active_workers+1,
     NewState = State#state{active_workers=ActiveWorkers},
-   io:format("active  ~p~n",[{?MODULE,?LINE,NewState}]), 
+%   io:format("active  ~p~n",[{?MODULE,?LINE,NewState}]), 
    {noreply, NewState};
 
 handle_info({'DOWN',Ref,process,Pid,normal},  #state{lSock = LSock,active_workers=ActiveWorkers,
 						     max_workers=Max,workers=Workers} = State) ->
-      io:format("DOWN Pid,Ref an workers  ~p~n",[{?MODULE,?LINE,Pid,Ref,Workers}]), 
+    %  io:format("DOWN Pid,Ref an workers  ~p~n",[{?MODULE,?LINE,Pid,Ref,Workers}]), 
     W1=lists:delete({Pid,Ref},Workers),
     NewActiveWorkers=ActiveWorkers-1,
     if
@@ -276,7 +287,7 @@ handle_info({'DOWN',Ref,process,Pid,normal},  #state{lSock = LSock,active_worker
     end,
 
     NewState=State#state{active_workers=NewActiveWorkers,workers=NewWorkerList},
-    io:format("DOWN  ~p~n",[{?MODULE,?LINE,NewState}]),
+   % io:format("DOWN  ~p~n",[{?MODULE,?LINE,NewState}]),
     {noreply, NewState};
 
 handle_info(Info, State) ->

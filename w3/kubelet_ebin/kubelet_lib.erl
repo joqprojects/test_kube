@@ -59,6 +59,7 @@ load_start_app(ServiceId,VsnInput,MyIp,Port)->
     R=application:start(Module).    
 
 load_start_pre_loaded_apps(PreLoadApps,MyIp,Port)->
+  %  io:format("~p~n",[{?MODULE,?LINE,PreLoadApps}]),
     load_start_apps(PreLoadApps,MyIp,Port,[]).
 load_start_apps([],_,_,StartResult)->
     StartResult;
@@ -89,7 +90,7 @@ load_start_apps([dns|T],MyIp,Port,Acc) -> %Has to be pre loaded
     load_start_apps(T,MyIp,Port,NewAcc);
     
 load_start_apps([Module|T],MyIp,Port,Acc) ->
-    Artifact=load_appfiles(atom_to_list(Module),latest),
+    {ok,Artifact}=load_appfiles(atom_to_list(Module),latest),
     #artifact{service_id=ServiceId,
 	      vsn=Vsn,
 	      appfile={_,_},
@@ -102,6 +103,45 @@ load_start_apps([Module|T],MyIp,Port,Acc) ->
     R=application:start(Module),
     NewAcc=[{ServiceId,Vsn,R}|Acc],
     load_start_apps(T,MyIp,Port,NewAcc).
+
+%% --------------------------------------------------------------------
+%% Function: 
+%% Description:
+%% Returns: non
+%% --------------------------------------------------------------------
+stop_unload_app(DnsInfo)->
+    #dns_info{service_id=ServiceId,vsn=Vsn}=DnsInfo,
+    Artifact=if_dns:call("repo",repo,read_artifact,[ServiceId,Vsn]),    
+    #artifact{service_id=ServiceId,
+	      vsn=Vsn,
+	      appfile={AppFileBaseName,_},
+	      modules=Modules
+	     }=Artifact,
+    Ebin=case ServiceId of
+	     "lib"->
+		 "lib_ebin";
+	     "kubelet"->
+		 "kubelet_ebin";
+	     _->
+		 ?SERVICE_EBIN
+	 end,   
+    Module=list_to_atom(ServiceId),
+    application:stop(Module),
+    application:unload(Module),
+
+    Appfile=filename:join(Ebin,AppFileBaseName),
+    ok=file:delete(Appfile),
+    DeleteResult=[file:delete(filename:join(Ebin,ModuleName))||{ModuleName,_}<-Modules], 
+    if_dns:call("dns",dns,de_dns_register,[DnsInfo]),
+    Reply=case [Y||Y<-DeleteResult,false=={Y=:=ok}] of
+	      []->
+		  ok;
+	      Err ->
+		  {error,[?MODULE,?LINE,'error deleting modules',Err]}
+	  end,
+   Reply.
+    
+
 %% --------------------------------------------------------------------
 %% Function: 
 %% Description:
@@ -143,7 +183,6 @@ load_appfiles(ServiceId,VsnInput)->  % VsnInput Can be latest !!!
 		 ?SERVICE_EBIN
 	 end,
     Artifact=if_dns:call("repo",repo,read_artifact,[ServiceId,VsnInput]),
-  %  io:format("~p~n",[{?MODULE,?LINE,Artifact}]),
     #artifact{service_id=ServiceId,
 	      vsn=Vsn,
 	      appfile={AppFileBaseName,AppBinary},
